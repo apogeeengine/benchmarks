@@ -1,0 +1,42 @@
+name: Benchmarks
+
+# Runs the benchmarks with the Linux editor of an apogeeengine/builds release and keeps the results (JSON, and a table
+# in the run's summary). Public runners vary from run to run: compare numbers within one run, or over many.
+on:
+  workflow_dispatch:
+    inputs:
+      engine_release:
+        description: "apogeeengine/builds release tag (empty: the latest)"
+        default: ""
+      runs:
+        description: Timed runs per case
+        default: "10"
+  schedule:
+    - cron: "0 5 * * 1"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ inputs.engine_release }} --repo apogeeengine/builds \
+            --pattern 'apogee-linuxbsd-editor-x86_64.zip' --dir "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/engine" && unzip -q "$RUNNER_TEMP"/apogee-linuxbsd-editor-x86_64.zip -d "$RUNNER_TEMP/engine"
+          chmod +x "$RUNNER_TEMP"/engine/apogee.linuxbsd.editor.x86_64
+
+      - name: Run
+        run: |
+          "$RUNNER_TEMP"/engine/apogee.linuxbsd.editor.x86_64 --headless --path . --luau-run run.luau \
+            -- --runs=${{ inputs.runs || 10 }} | tee "$RUNNER_TEMP/out.txt"
+          grep '^BENCHMARK_JSON ' "$RUNNER_TEMP/out.txt" | sed 's/^BENCHMARK_JSON //' > results.json
+          { echo '```'; grep -v '^BENCHMARK_JSON' "$RUNNER_TEMP/out.txt" | tail -n +2; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-linux
+          path: results.json
